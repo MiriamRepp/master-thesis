@@ -1,0 +1,144 @@
+name: &name "Conformer-Classifier"
+
+model:
+  sample_rate: 16000
+  log_prediction: true
+
+  labels: [ 'anger', 'disgust', 'sadness', 'joy', 'neutral', 'surprise', 'fear' ]
+
+  train_ds:
+    manifest_filepath: /master-thesis/data/datasets/meld/train_sent_emo.json
+    sample_rate: ${model.sample_rate}
+    labels: ${model.labels}
+    class_balancing: None # weighted_loss
+    batch_size: 8
+    shuffle: true
+    num_workers: 8
+    pin_memory: true
+    use_start_end_token: false
+    trim_silence: false
+    max_duration: 20.0
+    min_duration: 0.5
+    # tarred datasets
+    is_tarred: false
+    tarred_audio_filepaths: null
+    shuffle_n: 2048
+    bucketing_strategy: fully_randomized
+    bucketing_batch_size: null
+
+  validation_ds:
+    manifest_filepath: /master-thesis/data/datasets/meld/dev_sent_emo.json
+    sample_rate: ${model.sample_rate}
+    labels: ${model.labels}
+    batch_size: 8
+    shuffle: False
+    num_workers: 8
+    pin_memory: true
+    val_loss_idx: 0
+    max_duration: 20.0
+    min_duration: 0.5
+
+  test_ds:
+    manifest_filepath: /master-thesis/data/datasets/meld/test_sent_emo.json
+    sample_rate: ${model.sample_rate}
+    labels: ${model.labels}
+    batch_size: 8
+    shuffle: False
+    num_workers: 8
+    pin_memory: true
+    test_loss_idx: 0
+    max_duration: 20.0
+    min_duration: 0.5
+
+  preprocessor:
+    _target_: nemo.collections.asr.modules.AudioToMelSpectrogramPreprocessor
+    sample_rate: 16000
+    normalize: per_feature
+    window_size: 0.025
+    window_stride: 0.01
+    window: hann
+    features: 80
+    n_fft: 512
+    log: true
+    frame_splicing: 1
+    dither: 1.0e-05
+    pad_to: 0
+    pad_value: 0.0
+
+  spec_augment:
+    _target_: nemo.collections.asr.modules.SpectrogramAugmentation
+    freq_masks: 2
+    time_masks: 10
+    freq_width: 27
+    time_width: 0.05
+
+  encoder:
+    _target_: nemo.collections.asr.modules.ConformerEncoder
+    feat_in: 80
+    feat_out: -1
+    n_layers: 18
+    d_model: 512
+    subsampling: dw_striding
+    subsampling_factor: 8
+    subsampling_conv_channels: 256
+    causal_downsampling: false
+    ff_expansion_factor: 4
+    self_attention_model: rel_pos
+    n_heads: 8
+    att_context_size:
+    - -1
+    - -1
+    att_context_style: regular
+    xscaling: true
+    untie_biases: true
+    pos_emb_max_len: 5000
+    conv_kernel_size: 9
+    conv_norm_type: batch_norm
+    conv_context_size: null
+    dropout: 0.1
+    dropout_pre_encoder: 0.1
+    dropout_emb: 0.0
+    dropout_att: 0.1
+
+  decoder:
+    _target_: nemo_models.ser_nemo_models.decoders.ThreeLayerConvASRDecoderClassification.ThreeLayerConvASRDecoderClassification
+    feat_in: 512
+    return_logits: true
+    pooling_type: 'avg'
+
+  optim:
+    name: adamw
+    lr: 0.001
+    betas:
+    - 0.9
+    - 0.98
+    weight_decay: 0.001
+    sched:
+      name: CosineAnnealing
+      warmup_steps: 1000
+      warmup_ratio: null
+      min_lr: 0.0001
+
+trainer:
+  devices: 1 # number of gpus
+  max_epochs: 200
+  max_steps: -1 # computed at runtime if not set
+  num_nodes: 1
+  accelerator: gpu
+  strategy: ddp
+  accumulate_grad_batches: 1
+  enable_checkpointing: False  # Provided by exp_manager
+  logger: False  # Provided by exp_manager
+  log_every_n_steps: 1  # Interval of logging.
+  val_check_interval: 1.0  # Set to 0.25 to check 4 times per epoch, or an int for number of iterations
+  benchmark: false # needs to be false for models with variable-length speech input as it slows down training
+
+exp_manager:
+  exp_dir: null
+  name: *name
+  create_tensorboard_logger: True
+  create_checkpoint_callback: True
+  create_wandb_logger: False
+  wandb_logger_kwargs:
+    name: null
+    project: null
